@@ -1,0 +1,33 @@
+# DictShare
+
+A minimal Android WebView wrapper for online dictionaries (Lingea by default).
+Adds the dictionary to the system share sheet and to the text-selection
+toolbar (ACTION_PROCESS_TEXT), so highlighted text in any app can be looked
+up with one tap.
+
+- Default dictionary: https://slovniky.lingea.sk/anglicko-slovensky
+- Menu: switch EN/DE/IT <-> SK Lingea dictionaries or set any custom URL
+  template containing `%s` as the placeholder for the searched word.
+- WebView user agent is adjusted so Google account sign-in works.
+
+## Building
+
+No Gradle. Requirements: JDK (javac), aapt2, dalvik-exchange (dx),
+zipalign, apksigner, and an `android.jar` platform stub.
+
+```sh
+SDK=/path/to/dir-with-android.jar ./build.sh
+```
+
+`dictshare.keystore` (not committed) must be present in the project root
+for signing; keep it safe so updates install over the existing app.
+
+## Development workflow
+
+Claude clones this repo, commits enhancements, and exports them with
+`git format-patch`. Apply locally and push:
+
+```sh
+git am 00*.patch
+git push
+```
