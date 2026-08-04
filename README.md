@@ -8,7 +8,11 @@ up with one tap.
 - Default dictionary: https://slovniky.lingea.sk/anglicko-slovensky
 - Menu: switch EN/DE/IT <-> SK Lingea dictionaries or set any custom URL
   template containing `%s` as the placeholder for the searched word.
-- WebView user agent is adjusted so Google account sign-in works.
+- Appearance setting: match device / dark / light (darkens web content too
+  on Android 10+).
+- The site's navigation bar and footer are hidden to maximize reading space;
+  the app menu provides Sign in / Sign out and a toggle to show the site
+  navigation again when needed.
 
 ## Google sign-in limitation
 

@@ -25,6 +25,7 @@ public class MainActivity extends Activity {
     private static final String PREFS = "dictshare";
     private static final String KEY_TEMPLATE = "url_template";
     private static final String KEY_APPEARANCE = "appearance";
+    private static final String KEY_HIDE_CHROME = "hide_chrome";
     private static final String DEFAULT_TEMPLATE =
             "https://slovniky.lingea.sk/anglicko-slovensky/%s";
 
@@ -45,6 +46,9 @@ public class MainActivity extends Activity {
     private static final int M_CUSTOM = 6;
     private static final int M_BROWSER = 7;
     private static final int M_APPEARANCE = 8;
+    private static final int M_SIGNIN = 9;
+    private static final int M_SIGNOUT = 10;
+    private static final int M_NAV = 11;
 
     private WebView web;
     private String lastQuery = null;
@@ -126,6 +130,16 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {
                 }
                 return true;
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                applyChromeVisibility();
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                applyChromeVisibility();
             }
         });
 
@@ -228,6 +242,72 @@ public class MainActivity extends Activity {
         return getSharedPreferences(PREFS, MODE_PRIVATE);
     }
 
+    private boolean hideChrome() {
+        return prefs().getBoolean(KEY_HIDE_CHROME, true);
+    }
+
+    /**
+     * Injects (or removes) a persistent stylesheet hiding the site's top
+     * navigation bar and footer. A style rule keeps working even for
+     * elements rendered later, so no JavaScript timer is needed.
+     */
+    private void applyChromeVisibility() {
+        String js;
+        if (hideChrome()) {
+            js = "(function(){if(document.getElementById('dictshareHide'))return;"
+                    + "var st=document.createElement('style');st.id='dictshareHide';"
+                    + "st.textContent='.navbar.navbar-inverse,.page-footer"
+                    + "{display:none !important}';"
+                    + "(document.head||document.documentElement).appendChild(st);})();";
+        } else {
+            js = "(function(){var st=document.getElementById('dictshareHide');"
+                    + "if(st)st.parentNode.removeChild(st);})();";
+        }
+        web.evaluateJavascript(js, null);
+    }
+
+    /** Opens the Lingea login modal (the navbar link target #modalLogin). */
+    private void signIn() {
+        String js = "(function(){"
+                + "var a=document.querySelector('a[href=\"#modalLogin\"],"
+                + "a[data-target=\"#modalLogin\"]');"
+                + "if(a){a.click();return 'ok';}"
+                + "if(window.jQuery&&jQuery('#modalLogin').length)"
+                + "{jQuery('#modalLogin').modal('show');return 'ok';}"
+                + "return 'none';})();";
+        web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String value) {
+                if ("\"none\"".equals(value)) {
+                    Toast.makeText(MainActivity.this,
+                            "No login found on this page. Try \u2018Show site "
+                            + "navigation\u2019 and use the page itself.",
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+    }
+
+    /** Clicks the first link that looks like a logout action. */
+    private void signOut() {
+        String js = "(function(){var as=document.getElementsByTagName('a');"
+                + "for(var i=0;i<as.length;i++){var a=as[i];"
+                + "var t=(a.getAttribute('href')||'')+' '+(a.textContent||'');"
+                + "if(/odhl|logout|sign\\s?out/i.test(t)){a.click();return 'ok';}}"
+                + "return 'none';})();";
+        web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String value) {
+                if ("\"none\"".equals(value)) {
+                    Toast.makeText(MainActivity.this,
+                            "No logout link found \u2013 you may not be signed in. "
+                            + "Or try \u2018Show site navigation\u2019.",
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+    }
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         menu.add(0, M_HOME, 0, "Home");
@@ -237,8 +317,21 @@ public class MainActivity extends Activity {
         menu.add(0, M_IT, 4, "IT \u2194 SK (Lingea)");
         menu.add(0, M_CUSTOM, 5, "Custom dictionary URL\u2026");
         menu.add(0, M_APPEARANCE, 6, "Appearance\u2026");
-        menu.add(0, M_BROWSER, 7, "Open in browser");
+        menu.add(0, M_SIGNIN, 7, "Sign in\u2026");
+        menu.add(0, M_SIGNOUT, 8, "Sign out");
+        menu.add(0, M_NAV, 9, "Show site navigation");
+        menu.add(0, M_BROWSER, 10, "Open in browser");
         return true;
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        MenuItem nav = menu.findItem(M_NAV);
+        if (nav != null) {
+            nav.setTitle(hideChrome()
+                    ? "Show site navigation" : "Hide site navigation");
+        }
+        return super.onPrepareOptionsMenu(menu);
     }
 
     @Override
@@ -264,6 +357,16 @@ public class MainActivity extends Activity {
                 return true;
             case M_APPEARANCE:
                 showAppearanceDialog();
+                return true;
+            case M_SIGNIN:
+                signIn();
+                return true;
+            case M_SIGNOUT:
+                signOut();
+                return true;
+            case M_NAV:
+                prefs().edit().putBoolean(KEY_HIDE_CHROME, !hideChrome()).apply();
+                applyChromeVisibility();
                 return true;
             case M_BROWSER:
                 String current = web.getUrl();
