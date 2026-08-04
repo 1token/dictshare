@@ -12,8 +12,11 @@ up with one tap.
   on Android 10+).
 - Shared text is cleaned before lookup: surrounding punctuation/quotes are
   stripped and URL lines dropped (browsers share selections as "word" + URL).
-- Own lookup history (menu > History), covering shared words and words typed
-  on the site; size configurable (default 30), tap a word to search again.
+- Own lookup history kept separately per dictionary, covering shared words
+  and words typed on the site; size configurable (default 30). The site's
+  history card (capped at 15) is replaced in-page by the app's history,
+  styled like the original; menu > History offers the same list plus
+  Clear and Size controls.
 - The site's navigation bar and footer are hidden to maximize reading space;
   the app menu provides Sign in / Sign out and a toggle to show the site
   navigation again when needed.

@@ -21,6 +21,8 @@ import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -148,6 +150,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 applyChromeVisibility();
+                injectHistoryCard();
             }
 
             @Override
@@ -429,6 +432,50 @@ public class MainActivity extends Activity {
             list.remove(list.size() - 1);
         }
         saveHistory(template, list);
+    }
+
+    private static String htmlEscape(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+
+    /**
+     * Replaces the site's own history card (#historycard, capped at 15
+     * entries) with the app's per-dictionary history. The injected card
+     * reuses the site's "history mcard" CSS classes so it looks native.
+     * On pages without #historycard nothing is injected.
+     */
+    private void injectHistoryCard() {
+        List<String> list = loadHistory(getTemplate());
+        String js;
+        if (list.isEmpty()) {
+            js = "(function(){"
+                    + "var d=document.getElementById('dictshareHistory');"
+                    + "if(d)d.parentNode.removeChild(d);"
+                    + "var o=document.getElementById('historycard');"
+                    + "if(o)o.style.display='';})();";
+        } else {
+            StringBuilder h = new StringBuilder(
+                    "<h2>Hist\u00f3ria</h2><ul class=\"list-unstyled\">");
+            for (String w : list) {
+                h.append("<li><a href=\"").append(htmlEscape(buildUrl(w)))
+                        .append("\">").append(htmlEscape(w))
+                        .append("</a></li>");
+            }
+            h.append("</ul>");
+            js = "(function(){"
+                    + "var o=document.getElementById('historycard');"
+                    + "var d=document.getElementById('dictshareHistory');"
+                    + "if(!o&&!d)return;"
+                    + "if(!d){d=document.createElement('div');"
+                    + "d.className='history mcard';"
+                    + "d.id='dictshareHistory';"
+                    + "o.parentNode.insertBefore(d,o);}"
+                    + "d.innerHTML=" + JSONObject.quote(h.toString()) + ";"
+                    + "if(o)o.style.display='none';})();";
+        }
+        web.evaluateJavascript(js, null);
     }
 
     private void showHistoryDialog() {
