@@ -441,39 +441,40 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Replaces the site's own history card (#historycard, capped at 15
-     * entries) with the app's per-dictionary history. The injected card
-     * reuses the site's "history mcard" CSS classes so it looks native.
-     * On pages without #historycard nothing is injected.
+     * Fills the site's history card with the app's per-dictionary history.
+     * The card structure is kept intact (heading, column flow); only the
+     * inner #hist_content is replaced with links in the site's own format:
+     * <a href="/dict/word" class="bspan">word,</a> ... (no comma on the
+     * last one). With an empty app history the site's content is left
+     * untouched. Pages without the card are unaffected.
      */
     private void injectHistoryCard() {
         List<String> list = loadHistory(getTemplate());
+        // Cleanup of the v1.3 approach (extra card + hidden original)
+        String cleanup = "var d=document.getElementById('dictshareHistory');"
+                + "if(d)d.parentNode.removeChild(d);"
+                + "var o=document.getElementById('historycard');"
+                + "if(o)o.style.display='';";
         String js;
         if (list.isEmpty()) {
-            js = "(function(){"
-                    + "var d=document.getElementById('dictshareHistory');"
-                    + "if(d)d.parentNode.removeChild(d);"
-                    + "var o=document.getElementById('historycard');"
-                    + "if(o)o.style.display='';})();";
+            js = "(function(){" + cleanup + "})();";
         } else {
-            StringBuilder h = new StringBuilder(
-                    "<h2>Hist\u00f3ria</h2><ul class=\"list-unstyled\">");
-            for (String w : list) {
-                h.append("<li><a href=\"").append(htmlEscape(buildUrl(w)))
-                        .append("\">").append(htmlEscape(w))
-                        .append("</a></li>");
+            StringBuilder h = new StringBuilder();
+            for (int i = 0; i < list.size(); i++) {
+                String w = list.get(i);
+                boolean last = i == list.size() - 1;
+                h.append("<a href=\"").append(htmlEscape(buildUrl(w)))
+                        .append("\" class=\"bspan\">").append(htmlEscape(w))
+                        .append(last ? "" : ",").append("</a>");
+                if (!last) {
+                    h.append(' ');
+                }
             }
-            h.append("</ul>");
-            js = "(function(){"
-                    + "var o=document.getElementById('historycard');"
-                    + "var d=document.getElementById('dictshareHistory');"
-                    + "if(!o&&!d)return;"
-                    + "if(!d){d=document.createElement('div');"
-                    + "d.className='history mcard';"
-                    + "d.id='dictshareHistory';"
-                    + "o.parentNode.insertBefore(d,o);}"
-                    + "d.innerHTML=" + JSONObject.quote(h.toString()) + ";"
-                    + "if(o)o.style.display='none';})();";
+            js = "(function(){" + cleanup
+                    + "var hc=document.getElementById('hist_content');"
+                    + "if(!hc)return;"
+                    + "hc.innerHTML=" + JSONObject.quote(h.toString()) + ";"
+                    + "})();";
         }
         web.evaluateJavascript(js, null);
     }

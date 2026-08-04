@@ -14,9 +14,10 @@ up with one tap.
   stripped and URL lines dropped (browsers share selections as "word" + URL).
 - Own lookup history kept separately per dictionary, covering shared words
   and words typed on the site; size configurable (default 30). The site's
-  history card (capped at 15) is replaced in-page by the app's history,
-  styled like the original; menu > History offers the same list plus
-  Clear and Size controls.
+  history card content (#hist_content, capped at 15 by Lingea) is filled
+  in-page with the app's history using the site's own link format, so the
+  native card look and column flow are preserved; menu > History offers
+  the same list plus Clear and Size controls.
 - The site's navigation bar and footer are hidden to maximize reading space;
   the app menu provides Sign in / Sign out and a toggle to show the site
   navigation again when needed.
