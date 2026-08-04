@@ -30,7 +30,7 @@ public class MainActivity extends Activity {
     private static final String KEY_TEMPLATE = "url_template";
     private static final String KEY_APPEARANCE = "appearance";
     private static final String KEY_HIDE_CHROME = "hide_chrome";
-    private static final String KEY_HISTORY = "history";
+    private static final String KEY_HISTORY_PREFIX = "history:";
     private static final String KEY_HISTORY_SIZE = "history_size";
     private static final int DEFAULT_HISTORY_SIZE = 30;
     private static final String DEFAULT_TEMPLATE =
@@ -154,14 +154,22 @@ public class MainActivity extends Activity {
             public void doUpdateVisitedHistory(WebView view, String url,
                     boolean isReload) {
                 if (!isReload) {
-                    // Captures words typed directly into the site as well
-                    String w = wordFromUrl(url);
-                    if (w != null) {
-                        recordHistory(w);
+                    // Captures words typed directly into the site as well.
+                    // Matched against every known dictionary so that words
+                    // land in the history of the dictionary they belong to.
+                    for (String t : knownTemplates()) {
+                        String w = wordFromUrl(url, t);
+                        if (w != null) {
+                            recordHistory(w, t);
+                            break;
+                        }
                     }
                 }
             }
         });
+
+        // v1.2 kept one mixed-language history; remove the legacy entry
+        prefs().edit().remove("history").apply();
 
         if (savedInstanceState != null) {
             web.restoreState(savedInstanceState);
@@ -273,16 +281,30 @@ public class MainActivity extends Activity {
     }
 
     private void search(String query) {
-        recordHistory(query);
+        recordHistory(query, getTemplate());
+        web.loadUrl(buildUrl(query));
+    }
+
+    private String buildUrl(String query) {
         String template = getTemplate();
         String encoded = Uri.encode(query);
-        String url;
         if (template.contains("%s")) {
-            url = template.replace("%s", encoded);
-        } else {
-            url = template + (template.endsWith("/") ? "" : "/") + encoded;
+            return template.replace("%s", encoded);
         }
-        web.loadUrl(url);
+        return template + (template.endsWith("/") ? "" : "/") + encoded;
+    }
+
+    /** Current template plus the built-in presets, deduplicated. */
+    private List<String> knownTemplates() {
+        List<String> ts = new ArrayList<String>();
+        ts.add(getTemplate());
+        String[] presets = {T_EN, T_DE, T_IT};
+        for (String t : presets) {
+            if (!ts.contains(t)) {
+                ts.add(t);
+            }
+        }
+        return ts;
     }
 
     private String getTemplate() {
@@ -320,11 +342,10 @@ public class MainActivity extends Activity {
      * Extracts the looked-up word from a dictionary URL by matching it
      * against the current template (prefix before %s, suffix after it).
      */
-    private String wordFromUrl(String url) {
+    private String wordFromUrl(String url, String template) {
         if (url == null) {
             return null;
         }
-        String template = getTemplate();
         int idx = template.indexOf("%s");
         String prefix;
         String suffix;
@@ -361,8 +382,8 @@ public class MainActivity extends Activity {
         return prefs().getInt(KEY_HISTORY_SIZE, DEFAULT_HISTORY_SIZE);
     }
 
-    private List<String> loadHistory() {
-        String raw = prefs().getString(KEY_HISTORY, "");
+    private List<String> loadHistory(String template) {
+        String raw = prefs().getString(KEY_HISTORY_PREFIX + template, "");
         List<String> list = new ArrayList<String>();
         if (!raw.isEmpty()) {
             String[] parts = raw.split("\n");
@@ -375,7 +396,7 @@ public class MainActivity extends Activity {
         return list;
     }
 
-    private void saveHistory(List<String> list) {
+    private void saveHistory(String template, List<String> list) {
         StringBuilder sb = new StringBuilder();
         for (String s : list) {
             if (sb.length() > 0) {
@@ -383,11 +404,12 @@ public class MainActivity extends Activity {
             }
             sb.append(s);
         }
-        prefs().edit().putString(KEY_HISTORY, sb.toString()).apply();
+        prefs().edit().putString(KEY_HISTORY_PREFIX + template,
+                sb.toString()).apply();
     }
 
     /** Puts the word at the top of the history, deduplicated, size-capped. */
-    private void recordHistory(String word) {
+    private void recordHistory(String word, String template) {
         if (word == null) {
             return;
         }
@@ -395,7 +417,7 @@ public class MainActivity extends Activity {
         if (word.isEmpty()) {
             return;
         }
-        List<String> list = loadHistory();
+        List<String> list = loadHistory(template);
         for (int i = list.size() - 1; i >= 0; i--) {
             if (list.get(i).equalsIgnoreCase(word)) {
                 list.remove(i);
@@ -406,11 +428,11 @@ public class MainActivity extends Activity {
         while (list.size() > max) {
             list.remove(list.size() - 1);
         }
-        saveHistory(list);
+        saveHistory(template, list);
     }
 
     private void showHistoryDialog() {
-        List<String> list = loadHistory();
+        List<String> list = loadHistory(getTemplate());
         final String[] items = list.toArray(new String[0]);
         AlertDialog.Builder b = new AlertDialog.Builder(this);
         b.setTitle("History (" + items.length + "/" + historySize() + ")");
@@ -429,7 +451,8 @@ public class MainActivity extends Activity {
         b.setNeutralButton("Clear", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
-                prefs().edit().remove(KEY_HISTORY).apply();
+                prefs().edit().remove(KEY_HISTORY_PREFIX + getTemplate())
+                        .apply();
                 Toast.makeText(MainActivity.this, "History cleared",
                         Toast.LENGTH_SHORT).show();
             }
@@ -468,11 +491,15 @@ public class MainActivity extends Activity {
                     n = 500;
                 }
                 prefs().edit().putInt(KEY_HISTORY_SIZE, n).apply();
-                List<String> list = loadHistory();
-                while (list.size() > n) {
-                    list.remove(list.size() - 1);
+                for (String t : knownTemplates()) {
+                    List<String> list = loadHistory(t);
+                    if (list.size() > n) {
+                        while (list.size() > n) {
+                            list.remove(list.size() - 1);
+                        }
+                        saveHistory(t, list);
+                    }
                 }
-                saveHistory(list);
                 Toast.makeText(MainActivity.this,
                         "History size: " + n, Toast.LENGTH_SHORT).show();
             }
