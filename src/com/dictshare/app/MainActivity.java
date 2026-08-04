@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     private static final String KEY_HIDE_CHROME = "hide_chrome";
     private static final String KEY_HISTORY_PREFIX = "history:";
     private static final String KEY_HISTORY_SIZE = "history_size";
+    private static final String KEY_AUTOPRONOUNCE = "autopronounce";
     private static final int DEFAULT_HISTORY_SIZE = 30;
     private static final String DEFAULT_TEMPLATE =
             "https://slovniky.lingea.sk/anglicko-slovensky/%s";
@@ -59,6 +60,7 @@ public class MainActivity extends Activity {
     private static final int M_SIGNOUT = 10;
     private static final int M_NAV = 11;
     private static final int M_HISTORY = 12;
+    private static final int M_PRONOUNCE = 13;
 
     private WebView web;
     private String lastQuery = null;
@@ -117,6 +119,8 @@ public class MainActivity extends Activity {
         s.setDisplayZoomControls(false);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
+        // Allow programmatic (auto-)pronunciation without a tap
+        s.setMediaPlaybackRequiresUserGesture(false);
         applyWebDarkening(s);
 
         // Google blocks OAuth sign-in inside WebViews; removing the "; wv"
@@ -151,6 +155,7 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 applyChromeVisibility();
                 injectHistoryCard();
+                autoPronounce();
             }
 
             @Override
@@ -337,6 +342,28 @@ public class MainActivity extends Activity {
 
     private boolean hideChrome() {
         return prefs().getBoolean(KEY_HIDE_CHROME, true);
+    }
+
+    private boolean autoPronounceEnabled() {
+        return prefs().getBoolean(KEY_AUTOPRONOUNCE, true);
+    }
+
+    /**
+     * Clicks the headword's speaker (first .lex_ful_wsnd.play) shortly
+     * after the entry page finishes loading, so the searched word is
+     * pronounced without tapping the tiny button. A per-page guard
+     * prevents double playback; pages without a speaker are no-ops.
+     */
+    private void autoPronounce() {
+        if (!autoPronounceEnabled()) {
+            return;
+        }
+        String js = "(function(){"
+                + "if(window.__dsPron)return;window.__dsPron=1;"
+                + "setTimeout(function(){"
+                + "var el=document.querySelector('.lex_ful_wsnd.play');"
+                + "if(el)el.click();},250);})();";
+        web.evaluateJavascript(js, null);
     }
 
     // ---- Lookup history -------------------------------------------------
@@ -631,7 +658,9 @@ public class MainActivity extends Activity {
         menu.add(0, M_SIGNIN, 7, "Sign in\u2026");
         menu.add(0, M_SIGNOUT, 8, "Sign out");
         menu.add(0, M_NAV, 9, "Show site navigation");
-        menu.add(0, M_BROWSER, 10, "Open in browser");
+        MenuItem pron = menu.add(0, M_PRONOUNCE, 10, "Auto-pronounce");
+        pron.setCheckable(true);
+        menu.add(0, M_BROWSER, 11, "Open in browser");
         return true;
     }
 
@@ -641,6 +670,10 @@ public class MainActivity extends Activity {
         if (nav != null) {
             nav.setTitle(hideChrome()
                     ? "Show site navigation" : "Hide site navigation");
+        }
+        MenuItem pron = menu.findItem(M_PRONOUNCE);
+        if (pron != null) {
+            pron.setChecked(autoPronounceEnabled());
         }
         return super.onPrepareOptionsMenu(menu);
     }
@@ -681,6 +714,13 @@ public class MainActivity extends Activity {
             case M_NAV:
                 prefs().edit().putBoolean(KEY_HIDE_CHROME, !hideChrome()).apply();
                 applyChromeVisibility();
+                return true;
+            case M_PRONOUNCE:
+                boolean on = !autoPronounceEnabled();
+                prefs().edit().putBoolean(KEY_AUTOPRONOUNCE, on).apply();
+                Toast.makeText(this, on
+                        ? "Auto-pronounce enabled"
+                        : "Auto-pronounce disabled", Toast.LENGTH_SHORT).show();
                 return true;
             case M_BROWSER:
                 String current = web.getUrl();
