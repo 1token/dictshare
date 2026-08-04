@@ -3,10 +3,13 @@ package com.dictshare.app;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -21,12 +24,18 @@ public class MainActivity extends Activity {
 
     private static final String PREFS = "dictshare";
     private static final String KEY_TEMPLATE = "url_template";
+    private static final String KEY_APPEARANCE = "appearance";
     private static final String DEFAULT_TEMPLATE =
             "https://slovniky.lingea.sk/anglicko-slovensky/%s";
 
     private static final String T_EN = "https://slovniky.lingea.sk/anglicko-slovensky/%s";
     private static final String T_DE = "https://slovniky.lingea.sk/nemecko-slovensky/%s";
     private static final String T_IT = "https://slovniky.lingea.sk/taliansko-slovensky/%s";
+
+    // Appearance values
+    private static final int APP_SYSTEM = 0;
+    private static final int APP_DARK = 1;
+    private static final int APP_LIGHT = 2;
 
     private static final int M_HOME = 1;
     private static final int M_RELOAD = 2;
@@ -35,17 +44,57 @@ public class MainActivity extends Activity {
     private static final int M_IT = 5;
     private static final int M_CUSTOM = 6;
     private static final int M_BROWSER = 7;
+    private static final int M_APPEARANCE = 8;
 
     private WebView web;
     private String lastQuery = null;
 
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(newBase);
+        // Force day/night resources according to the appearance preference so
+        // that both the DayNight theme and WebView darkening follow it.
+        int mode = newBase.getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getInt(KEY_APPEARANCE, APP_SYSTEM);
+        if (mode != APP_SYSTEM) {
+            Configuration cfg = new Configuration();
+            cfg.uiMode = (mode == APP_DARK
+                    ? Configuration.UI_MODE_NIGHT_YES
+                    : Configuration.UI_MODE_NIGHT_NO)
+                    | Configuration.UI_MODE_TYPE_NORMAL;
+            applyOverrideConfiguration(cfg);
+        }
+    }
+
+    private boolean isDarkEffective() {
+        int mode = prefs().getInt(KEY_APPEARANCE, APP_SYSTEM);
+        if (mode == APP_DARK) {
+            return true;
+        }
+        if (mode == APP_LIGHT) {
+            return false;
+        }
+        int night = getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        return night == Configuration.UI_MODE_NIGHT_YES;
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Pick the activity theme before any views are created.
+        if (Build.VERSION.SDK_INT >= 29) {
+            setTheme(android.R.style.Theme_DeviceDefault_DayNight);
+        } else {
+            setTheme(isDarkEffective()
+                    ? android.R.style.Theme_DeviceDefault
+                    : android.R.style.Theme_DeviceDefault_Light_DarkActionBar);
+        }
         super.onCreate(savedInstanceState);
 
         web = new WebView(this);
         setContentView(web);
+        web.setBackgroundColor(isDarkEffective() ? 0xFF121212 : 0xFFFFFFFF);
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -54,6 +103,7 @@ public class MainActivity extends Activity {
         s.setDisplayZoomControls(false);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
+        applyWebDarkening(s);
 
         // Google blocks OAuth sign-in inside WebViews; removing the "; wv"
         // marker from the user agent makes the login flow work.
@@ -87,6 +137,24 @@ public class MainActivity extends Activity {
         } else {
             handleIntent(getIntent());
         }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void applyWebDarkening(WebSettings s) {
+        boolean dark = isDarkEffective();
+        int mode = prefs().getInt(KEY_APPEARANCE, APP_SYSTEM);
+        if (Build.VERSION.SDK_INT >= 33) {
+            // Follows the (possibly overridden) uiMode of this context.
+            s.setAlgorithmicDarkeningAllowed(mode != APP_LIGHT);
+        } else if (Build.VERSION.SDK_INT >= 29) {
+            if (mode == APP_SYSTEM) {
+                s.setForceDark(WebSettings.FORCE_DARK_AUTO);
+            } else {
+                s.setForceDark(dark ? WebSettings.FORCE_DARK_ON
+                        : WebSettings.FORCE_DARK_OFF);
+            }
+        }
+        // Below API 29 the web content simply stays as the site renders it.
     }
 
     @Override
@@ -168,7 +236,8 @@ public class MainActivity extends Activity {
         menu.add(0, M_DE, 3, "DE \u2194 SK (Lingea)");
         menu.add(0, M_IT, 4, "IT \u2194 SK (Lingea)");
         menu.add(0, M_CUSTOM, 5, "Custom dictionary URL\u2026");
-        menu.add(0, M_BROWSER, 6, "Open in browser");
+        menu.add(0, M_APPEARANCE, 6, "Appearance\u2026");
+        menu.add(0, M_BROWSER, 7, "Open in browser");
         return true;
     }
 
@@ -193,6 +262,9 @@ public class MainActivity extends Activity {
             case M_CUSTOM:
                 showTemplateDialog();
                 return true;
+            case M_APPEARANCE:
+                showAppearanceDialog();
+                return true;
             case M_BROWSER:
                 String current = web.getUrl();
                 if (current != null) {
@@ -205,6 +277,23 @@ public class MainActivity extends Activity {
             default:
                 return super.onOptionsItemSelected(item);
         }
+    }
+
+    private void showAppearanceDialog() {
+        final String[] names = {"Match device", "Dark", "Light"};
+        int current = prefs().getInt(KEY_APPEARANCE, APP_SYSTEM);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("Appearance");
+        b.setSingleChoiceItems(names, current, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                prefs().edit().putInt(KEY_APPEARANCE, which).apply();
+                dialog.dismiss();
+                recreate(); // re-applies theme; WebView state is restored
+            }
+        });
+        b.setNegativeButton("Cancel", null);
+        b.show();
     }
 
     private void showTemplateDialog() {
