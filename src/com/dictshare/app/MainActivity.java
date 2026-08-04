@@ -11,6 +11,7 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.webkit.CookieManager;
@@ -20,12 +21,18 @@ import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class MainActivity extends Activity {
 
     private static final String PREFS = "dictshare";
     private static final String KEY_TEMPLATE = "url_template";
     private static final String KEY_APPEARANCE = "appearance";
     private static final String KEY_HIDE_CHROME = "hide_chrome";
+    private static final String KEY_HISTORY = "history";
+    private static final String KEY_HISTORY_SIZE = "history_size";
+    private static final int DEFAULT_HISTORY_SIZE = 30;
     private static final String DEFAULT_TEMPLATE =
             "https://slovniky.lingea.sk/anglicko-slovensky/%s";
 
@@ -49,6 +56,7 @@ public class MainActivity extends Activity {
     private static final int M_SIGNIN = 9;
     private static final int M_SIGNOUT = 10;
     private static final int M_NAV = 11;
+    private static final int M_HISTORY = 12;
 
     private WebView web;
     private String lastQuery = null;
@@ -140,6 +148,18 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 applyChromeVisibility();
+            }
+
+            @Override
+            public void doUpdateVisitedHistory(WebView view, String url,
+                    boolean isReload) {
+                if (!isReload) {
+                    // Captures words typed directly into the site as well
+                    String w = wordFromUrl(url);
+                    if (w != null) {
+                        recordHistory(w);
+                    }
+                }
             }
         });
 
@@ -253,6 +273,7 @@ public class MainActivity extends Activity {
     }
 
     private void search(String query) {
+        recordHistory(query);
         String template = getTemplate();
         String encoded = Uri.encode(query);
         String url;
@@ -291,6 +312,173 @@ public class MainActivity extends Activity {
 
     private boolean hideChrome() {
         return prefs().getBoolean(KEY_HIDE_CHROME, true);
+    }
+
+    // ---- Lookup history -------------------------------------------------
+
+    /**
+     * Extracts the looked-up word from a dictionary URL by matching it
+     * against the current template (prefix before %s, suffix after it).
+     */
+    private String wordFromUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        String template = getTemplate();
+        int idx = template.indexOf("%s");
+        String prefix;
+        String suffix;
+        if (idx >= 0) {
+            prefix = template.substring(0, idx);
+            suffix = template.substring(idx + 2);
+        } else {
+            prefix = template + (template.endsWith("/") ? "" : "/");
+            suffix = "";
+        }
+        if (!url.startsWith(prefix)) {
+            return null;
+        }
+        String rest = url.substring(prefix.length());
+        int cut = rest.indexOf('#');
+        if (cut >= 0) {
+            rest = rest.substring(0, cut);
+        }
+        cut = rest.indexOf('?');
+        if (cut >= 0) {
+            rest = rest.substring(0, cut);
+        }
+        if (!suffix.isEmpty() && rest.endsWith(suffix)) {
+            rest = rest.substring(0, rest.length() - suffix.length());
+        }
+        if (rest.isEmpty() || rest.contains("/")) {
+            return null;
+        }
+        String w = Uri.decode(rest).trim();
+        return w.isEmpty() ? null : w;
+    }
+
+    private int historySize() {
+        return prefs().getInt(KEY_HISTORY_SIZE, DEFAULT_HISTORY_SIZE);
+    }
+
+    private List<String> loadHistory() {
+        String raw = prefs().getString(KEY_HISTORY, "");
+        List<String> list = new ArrayList<String>();
+        if (!raw.isEmpty()) {
+            String[] parts = raw.split("\n");
+            for (String p : parts) {
+                if (!p.isEmpty()) {
+                    list.add(p);
+                }
+            }
+        }
+        return list;
+    }
+
+    private void saveHistory(List<String> list) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : list) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(s);
+        }
+        prefs().edit().putString(KEY_HISTORY, sb.toString()).apply();
+    }
+
+    /** Puts the word at the top of the history, deduplicated, size-capped. */
+    private void recordHistory(String word) {
+        if (word == null) {
+            return;
+        }
+        word = word.trim();
+        if (word.isEmpty()) {
+            return;
+        }
+        List<String> list = loadHistory();
+        for (int i = list.size() - 1; i >= 0; i--) {
+            if (list.get(i).equalsIgnoreCase(word)) {
+                list.remove(i);
+            }
+        }
+        list.add(0, word);
+        int max = historySize();
+        while (list.size() > max) {
+            list.remove(list.size() - 1);
+        }
+        saveHistory(list);
+    }
+
+    private void showHistoryDialog() {
+        List<String> list = loadHistory();
+        final String[] items = list.toArray(new String[0]);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("History (" + items.length + "/" + historySize() + ")");
+        if (items.length == 0) {
+            b.setMessage("No lookups yet.");
+        } else {
+            b.setItems(items, new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    lastQuery = items[which];
+                    search(items[which]);
+                }
+            });
+        }
+        b.setNegativeButton("Close", null);
+        b.setNeutralButton("Clear", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                prefs().edit().remove(KEY_HISTORY).apply();
+                Toast.makeText(MainActivity.this, "History cleared",
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+        b.setPositiveButton("Size\u2026", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                showHistorySizeDialog();
+            }
+        });
+        b.show();
+    }
+
+    private void showHistorySizeDialog() {
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(historySize()));
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("History size");
+        b.setMessage("How many words to keep (5\u2013500).");
+        b.setView(input, pad, pad / 2, pad, 0);
+        b.setPositiveButton("Save", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                int n;
+                try {
+                    n = Integer.parseInt(input.getText().toString().trim());
+                } catch (NumberFormatException e) {
+                    n = DEFAULT_HISTORY_SIZE;
+                }
+                if (n < 5) {
+                    n = 5;
+                }
+                if (n > 500) {
+                    n = 500;
+                }
+                prefs().edit().putInt(KEY_HISTORY_SIZE, n).apply();
+                List<String> list = loadHistory();
+                while (list.size() > n) {
+                    list.remove(list.size() - 1);
+                }
+                saveHistory(list);
+                Toast.makeText(MainActivity.this,
+                        "History size: " + n, Toast.LENGTH_SHORT).show();
+            }
+        });
+        b.setNegativeButton("Cancel", null);
+        b.show();
     }
 
     /**
@@ -359,6 +547,7 @@ public class MainActivity extends Activity {
     public boolean onCreateOptionsMenu(Menu menu) {
         menu.add(0, M_HOME, 0, "Home");
         menu.add(0, M_RELOAD, 1, "Reload");
+        menu.add(0, M_HISTORY, 2, "History\u2026");
         menu.add(0, M_EN, 2, "EN \u2194 SK (Lingea)");
         menu.add(0, M_DE, 3, "DE \u2194 SK (Lingea)");
         menu.add(0, M_IT, 4, "IT \u2194 SK (Lingea)");
@@ -389,6 +578,9 @@ public class MainActivity extends Activity {
                 return true;
             case M_RELOAD:
                 web.reload();
+                return true;
+            case M_HISTORY:
+                showHistoryDialog();
                 return true;
             case M_EN:
                 setTemplate(T_EN);
