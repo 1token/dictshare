@@ -10,6 +10,19 @@ up with one tap.
   template containing `%s` as the placeholder for the searched word.
 - WebView user agent is adjusted so Google account sign-in works.
 
+## Google sign-in limitation
+
+Signing in with a Google account does **not** work inside the app and cannot
+be fixed: Google deliberately blocks its login flow in embedded Android
+WebViews (anti-phishing policy), detected via the `X-Requested-With` header
+and JavaScript fingerprinting, not just the user agent. Chrome Custom Tabs
+would allow the Google login but cannot share cookies with the WebView, so
+the session would never reach the app.
+
+**Use Lingea's own username/password login instead** - it is served directly
+by Lingea, works normally, and the session persists in the WebView's cookie
+store across app restarts.
+
 ## Building
 
 No Gradle. Requirements: JDK (javac), aapt2, dalvik-exchange (dx),
