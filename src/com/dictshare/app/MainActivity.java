@@ -202,7 +202,54 @@ public class MainActivity extends Activity {
         if (text == null) {
             return null;
         }
-        return text.toString().trim();
+        return cleanQuery(text.toString());
+    }
+
+    /** Characters stripped from the beginning and end of shared text. */
+    private static final String STRIP =
+            "[\\s\"\u201E\u201C\u201D\u00AB\u00BB\u2039\u203A(){}\\[\\]<>"
+            + ",.;:!?\u2026\u00B7\\-\u2013\u2014]+";
+
+    /**
+     * Cleans shared text before looking it up: drops URL lines (browsers
+     * often share the selection as `"word"` followed by the page URL),
+     * joins the remaining lines, trims surrounding punctuation and double
+     * quotes, and strips single quotes only when they appear as a pair,
+     * so a real trailing apostrophe (Italian po') survives.
+     */
+    private String cleanQuery(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String[] lines = raw.split("\\r?\\n");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String t = line.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            String low = t.toLowerCase();
+            if (low.startsWith("http://") || low.startsWith("https://")
+                    || low.startsWith("www.")) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(t);
+        }
+        String s = sb.toString();
+        s = s.replaceAll("^" + STRIP, "").replaceAll(STRIP + "$", "");
+        if (s.length() >= 2) {
+            char a = s.charAt(0);
+            char b = s.charAt(s.length() - 1);
+            boolean qa = a == '\'' || a == '\u2018' || a == '\u201A' || a == '\u2019';
+            boolean qb = b == '\'' || b == '\u2019' || b == '\u2018';
+            if (qa && qb) {
+                s = s.substring(1, s.length() - 1).trim();
+            }
+        }
+        return s;
     }
 
     private void search(String query) {
