@@ -17,11 +17,16 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONObject;
@@ -558,27 +563,73 @@ public class MainActivity extends Activity {
     }
 
     private void showHistoryDialog() {
-        List<String> list = loadHistory(getTemplate());
-        final String[] items = list.toArray(new String[0]);
+        final String template = getTemplate();
+        final List<String> list = loadHistory(template);
         AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("History (" + items.length + "/" + historySize() + ")");
-        if (items.length == 0) {
+        b.setTitle("History (" + list.size() + "/" + historySize() + ")");
+        final AlertDialog[] holder = new AlertDialog[1];
+        if (list.isEmpty()) {
             b.setMessage("No lookups yet.");
         } else {
-            b.setItems(items, new DialogInterface.OnClickListener() {
+            final float density = getResources().getDisplayMetrics().density;
+            final ArrayAdapter<String> adapter =
+                    new ArrayAdapter<String>(this, 0, list) {
                 @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    lastQuery = items[which];
-                    search(items[which]);
+                public View getView(int position, View convertView,
+                        ViewGroup parent) {
+                    final String word = getItem(position);
+                    final ArrayAdapter<String> self = this;
+                    LinearLayout row = new LinearLayout(MainActivity.this);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    int pad = (int) (12 * density);
+
+                    TextView tv = new TextView(MainActivity.this);
+                    tv.setText(word);
+                    tv.setTextSize(16);
+                    tv.setPadding(pad * 2, pad, pad, pad);
+                    tv.setLayoutParams(new LinearLayout.LayoutParams(0,
+                            LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                    tv.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            if (holder[0] != null) {
+                                holder[0].dismiss();
+                            }
+                            lastQuery = word;
+                            search(word);
+                        }
+                    });
+
+                    TextView del = new TextView(MainActivity.this);
+                    del.setText("\u2715");
+                    del.setTextSize(16);
+                    del.setPadding(pad, pad, pad * 2, pad);
+                    del.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            self.remove(word);
+                            saveHistory(template, list);
+                            if (holder[0] != null) {
+                                holder[0].setTitle("History (" + list.size()
+                                        + "/" + historySize() + ")");
+                            }
+                        }
+                    });
+
+                    row.addView(tv);
+                    row.addView(del);
+                    return row;
                 }
-            });
+            };
+            ListView lv = new ListView(this);
+            lv.setAdapter(adapter);
+            b.setView(lv);
         }
         b.setNegativeButton("Close", null);
         b.setNeutralButton("Clear", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
-                prefs().edit().remove(KEY_HISTORY_PREFIX + getTemplate())
-                        .apply();
+                prefs().edit().remove(KEY_HISTORY_PREFIX + template).apply();
                 Toast.makeText(MainActivity.this, "History cleared",
                         Toast.LENGTH_SHORT).show();
             }
@@ -589,7 +640,8 @@ public class MainActivity extends Activity {
                 showHistorySizeDialog();
             }
         });
-        b.show();
+        holder[0] = b.create();
+        holder[0].show();
     }
 
     private void showHistorySizeDialog() {
