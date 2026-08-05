@@ -12,8 +12,11 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.view.GestureDetector;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
+import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -97,7 +100,7 @@ public class MainActivity extends Activity {
         return night == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Pick the activity theme before any views are created.
@@ -129,6 +132,39 @@ public class MainActivity extends Activity {
         // marker from the user agent makes the login flow work.
         String ua = s.getUserAgentString();
         s.setUserAgentString(ua.replace("; wv", ""));
+
+        // Horizontal fling = previous/next dictionary entry, mirroring the
+        // site's mi-index_prev / mi-index_next buttons (works even while
+        // the menu bar is hidden). The listener never consumes events, so
+        // normal scrolling and tapping are unaffected.
+        final GestureDetector gestures = new GestureDetector(this,
+                new GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onFling(MotionEvent e1, MotionEvent e2,
+                            float vx, float vy) {
+                        if (e1 == null || e2 == null) {
+                            return false;
+                        }
+                        float dx = e2.getX() - e1.getX();
+                        float dy = e2.getY() - e1.getY();
+                        float min = 100
+                                * getResources().getDisplayMetrics().density;
+                        if (Math.abs(dx) > min
+                                && Math.abs(dx) > 2 * Math.abs(dy)
+                                && Math.abs(vx) > 300) {
+                            entryStep(dx < 0);
+                            return true;
+                        }
+                        return false;
+                    }
+                });
+        web.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                gestures.onTouchEvent(event);
+                return false;
+            }
+        });
 
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
@@ -348,6 +384,15 @@ public class MainActivity extends Activity {
 
     private boolean hideMenuBar() {
         return prefs().getBoolean(KEY_HIDE_MENUBAR, true);
+    }
+
+    /** Clicks the site's next (true) or previous (false) entry button. */
+    private void entryStep(boolean next) {
+        String sel = next ? ".menu-icon.mi-index_next"
+                : ".menu-icon.mi-index_prev";
+        String js = "(function(){var el=document.querySelector('" + sel
+                + "');if(el)el.click();})();";
+        web.evaluateJavascript(js, null);
     }
 
     private boolean autoPronounceEnabled() {
