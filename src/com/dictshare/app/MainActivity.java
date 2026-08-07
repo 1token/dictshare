@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private String lastQuery = null;
+    private boolean resumed = false;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -246,6 +247,23 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        resumed = true;
+        web.onResume();
+    }
+
+    @Override
+    protected void onPause() {
+        // Pauses WebView processing and any playing pronunciation audio;
+        // together with the resumed flag this stops auto-pronunciation
+        // from firing while the app is in the background.
+        web.onPause();
+        resumed = false;
+        super.onPause();
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
@@ -420,7 +438,7 @@ public class MainActivity extends Activity {
      * time so redirects or repeated callbacks do not toggle it off again.
      */
     private void autoPronounce() {
-        if (!autoPronounceEnabled()) {
+        if (!autoPronounceEnabled() || !resumed) {
             return;
         }
         String js = "(function(){"
