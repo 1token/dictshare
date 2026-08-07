@@ -553,8 +553,9 @@ public class MainActivity extends Activity {
 
     /**
      * Fills the site's history list with the app's per-dictionary
-     * history. The redesigned site renders the list as
-     * .area-right ul > li > span; injected items use the same classes
+     * history. The site renders the list twice (a mobile and a desktop
+     * variant of .area-right); the items are injected into every
+     * .area-right ul. Injected entries use the site's own classes
      * but as real links. Because the site is a reactive app that may
      * re-render the list at any time, a MutationObserver re-applies the
      * app's items whenever they get overwritten. With an empty app
@@ -578,13 +579,14 @@ public class MainActivity extends Activity {
         String js = "(function(){"
                 + "window.__dsHist=" + JSONObject.quote(h.toString()) + ";"
                 + "function ap(){"
-                + "var ul=document.querySelector('.area-right ul');"
-                + "if(!ul||!window.__dsHist)return;"
+                + "if(!window.__dsHist)return;"
+                + "var uls=document.querySelectorAll('.area-right ul');"
+                + "for(var i=0;i<uls.length;i++){var ul=uls[i];"
                 + "if(ul.getAttribute('data-dictshare')==='1'"
-                + "&&ul.__dsSet===window.__dsHist)return;"
+                + "&&ul.__dsSet===window.__dsHist)continue;"
                 + "ul.innerHTML=window.__dsHist;"
                 + "ul.setAttribute('data-dictshare','1');"
-                + "ul.__dsSet=window.__dsHist;}"
+                + "ul.__dsSet=window.__dsHist;}}"
                 + "if(!window.__dsObs){"
                 + "window.__dsObs=new MutationObserver(function(){ap();});"
                 + "window.__dsObs.observe(document.documentElement,"
