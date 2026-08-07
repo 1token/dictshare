@@ -193,7 +193,6 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 applyChromeVisibility();
                 injectHistoryCard();
-                autoPronounce();
             }
 
             @Override
@@ -207,6 +206,7 @@ public class MainActivity extends Activity {
                         String w = wordFromUrl(url, t);
                         if (w != null) {
                             recordHistory(w, t);
+                            scheduleEntryEnhancements();
                             break;
                         }
                     }
@@ -384,11 +384,29 @@ public class MainActivity extends Activity {
 
     /** Clicks the site's next (true) or previous (false) entry button. */
     private void entryStep(boolean next) {
-        String sel = next ? ".menu-icon.mi-index_next"
-                : ".menu-icon.mi-index_prev";
+        String sel = next
+                ? "[title=\"Nasleduj\u00face\"], .menu-icon.mi-index_next"
+                : "[title=\"Predch\u00e1dzaj\u00face\"], .menu-icon.mi-index_prev";
         String js = "(function(){var el=document.querySelector('" + sel
                 + "');if(el)el.click();})();";
         web.evaluateJavascript(js, null);
+    }
+
+    /**
+     * The redesigned site navigates between entries without full page
+     * loads, so history injection and auto-pronunciation are (re)applied
+     * shortly after every recorded word navigation, giving the page time
+     * to render the entry.
+     */
+    private void scheduleEntryEnhancements() {
+        web.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                applyChromeVisibility();
+                injectHistoryCard();
+                autoPronounce();
+            }
+        }, 500);
     }
 
     private boolean autoPronounceEnabled() {
@@ -396,20 +414,21 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Clicks the headword's speaker (first .lex_ful_wsnd.play) shortly
-     * after the entry page finishes loading, so the searched word is
-     * pronounced without tapping the tiny button. A per-page guard
-     * prevents double playback; pages without a speaker are no-ops.
+     * Clicks the headword's speaker (the <wsnd> element on the current
+     * site, the old .lex_ful_wsnd.play as fallback) so the searched word
+     * is pronounced without tapping the tiny button. Guarded per URL and
+     * time so redirects or repeated callbacks do not toggle it off again.
      */
     private void autoPronounce() {
         if (!autoPronounceEnabled()) {
             return;
         }
         String js = "(function(){"
-                + "if(window.__dsPron)return;window.__dsPron=1;"
-                + "setTimeout(function(){"
-                + "var el=document.querySelector('.lex_ful_wsnd.play');"
-                + "if(el)el.click();},250);})();";
+                + "var k=location.href,n=Date.now();"
+                + "if(window.__dsPh===k&&n-(window.__dsPt||0)<2000)return;"
+                + "window.__dsPh=k;window.__dsPt=n;"
+                + "var el=document.querySelector('wsnd, .lex_ful_wsnd.play');"
+                + "if(el)el.click();})();";
         web.evaluateJavascript(js, null);
     }
 
@@ -515,41 +534,44 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Fills the site's history card with the app's per-dictionary history.
-     * The card structure is kept intact (heading, column flow); only the
-     * inner #hist_content is replaced with links in the site's own format:
-     * <a href="/dict/word" class="bspan">word,</a> ... (no comma on the
-     * last one). With an empty app history the site's content is left
-     * untouched. Pages without the card are unaffected.
+     * Fills the site's history list with the app's per-dictionary
+     * history. The redesigned site renders the list as
+     * .area-right ul > li > span; injected items use the same classes
+     * but as real links. Because the site is a reactive app that may
+     * re-render the list at any time, a MutationObserver re-applies the
+     * app's items whenever they get overwritten. With an empty app
+     * history the site's own list is left untouched.
      */
     private void injectHistoryCard() {
         List<String> list = loadHistory(getTemplate());
-        // Cleanup of the v1.3 approach (extra card + hidden original)
-        String cleanup = "var d=document.getElementById('dictshareHistory');"
-                + "if(d)d.parentNode.removeChild(d);"
-                + "var o=document.getElementById('historycard');"
-                + "if(o)o.style.display='';";
-        String js;
-        if (list.isEmpty()) {
-            js = "(function(){" + cleanup + "})();";
-        } else {
-            StringBuilder h = new StringBuilder();
-            for (int i = 0; i < list.size(); i++) {
-                String w = list.get(i);
-                boolean last = i == list.size() - 1;
-                h.append("<a href=\"").append(htmlEscape(buildUrl(w)))
-                        .append("\" class=\"bspan\">").append(htmlEscape(w))
-                        .append(last ? "" : ",").append("</a>");
-                if (!last) {
-                    h.append(' ');
-                }
+        StringBuilder h = new StringBuilder();
+        for (int i = 0; i < list.size(); i++) {
+            String w = list.get(i);
+            boolean last = i == list.size() - 1;
+            h.append("<li><a href=\"").append(htmlEscape(buildUrl(w)))
+                    .append("\" class=\"hover:cursor-pointer ")
+                    .append("hover:underline break-all\">")
+                    .append(htmlEscape(w)).append("</a>");
+            if (!last) {
+                h.append("<span class=\"mr-1\">,</span>");
             }
-            js = "(function(){" + cleanup
-                    + "var hc=document.getElementById('hist_content');"
-                    + "if(!hc)return;"
-                    + "hc.innerHTML=" + JSONObject.quote(h.toString()) + ";"
-                    + "})();";
+            h.append("</li>");
         }
+        String js = "(function(){"
+                + "window.__dsHist=" + JSONObject.quote(h.toString()) + ";"
+                + "function ap(){"
+                + "var ul=document.querySelector('.area-right ul');"
+                + "if(!ul||!window.__dsHist)return;"
+                + "if(ul.getAttribute('data-dictshare')==='1'"
+                + "&&ul.__dsSet===window.__dsHist)return;"
+                + "ul.innerHTML=window.__dsHist;"
+                + "ul.setAttribute('data-dictshare','1');"
+                + "ul.__dsSet=window.__dsHist;}"
+                + "if(!window.__dsObs){"
+                + "window.__dsObs=new MutationObserver(function(){ap();});"
+                + "window.__dsObs.observe(document.documentElement,"
+                + "{childList:true,subtree:true});}"
+                + "ap();})();";
         web.evaluateJavascript(js, null);
     }
 
@@ -684,22 +706,20 @@ public class MainActivity extends Activity {
      */
     private void applyChromeVisibility() {
         StringBuilder rules = new StringBuilder();
+        // Always: the history column is hidden on small screens by the
+        // site (lg:block hidden); keep it visible. Hide the mobile ad.
+        rules.append(".area-right{display:block !important}");
+        rules.append(".premium.mobile{display:none !important}");
         if (hideChrome()) {
-            rules.append(".navbar.navbar-inverse,.page-footer"
-                    + "{display:none !important}");
+            rules.append("nav,footer{display:none !important}");
         }
-        String js;
-        if (rules.length() == 0) {
-            js = "(function(){var st=document.getElementById('dictshareHide');"
-                    + "if(st)st.parentNode.removeChild(st);})();";
-        } else {
-            js = "(function(){var st=document.getElementById('dictshareHide');"
-                    + "if(!st){st=document.createElement('style');"
-                    + "st.id='dictshareHide';"
-                    + "(document.head||document.documentElement).appendChild(st);}"
-                    + "st.textContent=" + JSONObject.quote(rules.toString())
-                    + ";})();";
-        }
+        String js = "(function(){"
+                + "var st=document.getElementById('dictshareHide');"
+                + "if(!st){st=document.createElement('style');"
+                + "st.id='dictshareHide';"
+                + "(document.head||document.documentElement).appendChild(st);}"
+                + "st.textContent=" + JSONObject.quote(rules.toString())
+                + ";})();";
         web.evaluateJavascript(js, null);
     }
 
