@@ -40,7 +40,6 @@ public class MainActivity extends Activity {
     private static final String KEY_TEMPLATE = "url_template";
     private static final String KEY_APPEARANCE = "appearance";
     private static final String KEY_HIDE_CHROME = "hide_chrome";
-    private static final String KEY_HIDE_MENUBAR = "hide_menubar";
     private static final String KEY_HISTORY_PREFIX = "history:";
     private static final String KEY_HISTORY_SIZE = "history_size";
     private static final String KEY_AUTOPRONOUNCE = "autopronounce";
@@ -62,15 +61,11 @@ public class MainActivity extends Activity {
     private static final int M_EN = 3;
     private static final int M_DE = 4;
     private static final int M_IT = 5;
-    private static final int M_CUSTOM = 6;
     private static final int M_BROWSER = 7;
     private static final int M_APPEARANCE = 8;
-    private static final int M_SIGNIN = 9;
-    private static final int M_SIGNOUT = 10;
     private static final int M_NAV = 11;
     private static final int M_HISTORY = 12;
     private static final int M_PRONOUNCE = 13;
-    private static final int M_MENUBAR = 14;
 
     private WebView web;
     private String lastQuery = null;
@@ -387,10 +382,6 @@ public class MainActivity extends Activity {
         return prefs().getBoolean(KEY_HIDE_CHROME, true);
     }
 
-    private boolean hideMenuBar() {
-        return prefs().getBoolean(KEY_HIDE_MENUBAR, true);
-    }
-
     /** Clicks the site's next (true) or previous (false) entry button. */
     private void entryStep(boolean next) {
         String sel = next ? ".menu-icon.mi-index_next"
@@ -697,9 +688,6 @@ public class MainActivity extends Activity {
             rules.append(".navbar.navbar-inverse,.page-footer"
                     + "{display:none !important}");
         }
-        if (hideMenuBar()) {
-            rules.append(".menu{display:none !important}");
-        }
         String js;
         if (rules.length() == 0) {
             js = "(function(){var st=document.getElementById('dictshareHide');"
@@ -715,48 +703,6 @@ public class MainActivity extends Activity {
         web.evaluateJavascript(js, null);
     }
 
-    /** Opens the Lingea login modal (the navbar link target #modalLogin). */
-    private void signIn() {
-        String js = "(function(){"
-                + "var a=document.querySelector('a[href=\"#modalLogin\"],"
-                + "a[data-target=\"#modalLogin\"]');"
-                + "if(a){a.click();return 'ok';}"
-                + "if(window.jQuery&&jQuery('#modalLogin').length)"
-                + "{jQuery('#modalLogin').modal('show');return 'ok';}"
-                + "return 'none';})();";
-        web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
-            @Override
-            public void onReceiveValue(String value) {
-                if ("\"none\"".equals(value)) {
-                    Toast.makeText(MainActivity.this,
-                            "No login found on this page. Try \u2018Show site "
-                            + "navigation\u2019 and use the page itself.",
-                            Toast.LENGTH_LONG).show();
-                }
-            }
-        });
-    }
-
-    /** Clicks the first link that looks like a logout action. */
-    private void signOut() {
-        String js = "(function(){var as=document.getElementsByTagName('a');"
-                + "for(var i=0;i<as.length;i++){var a=as[i];"
-                + "var t=(a.getAttribute('href')||'')+' '+(a.textContent||'');"
-                + "if(/odhl|logout|sign\\s?out/i.test(t)){a.click();return 'ok';}}"
-                + "return 'none';})();";
-        web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
-            @Override
-            public void onReceiveValue(String value) {
-                if ("\"none\"".equals(value)) {
-                    Toast.makeText(MainActivity.this,
-                            "No logout link found \u2013 you may not be signed in. "
-                            + "Or try \u2018Show site navigation\u2019.",
-                            Toast.LENGTH_LONG).show();
-                }
-            }
-        });
-    }
-
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         menu.add(0, M_HOME, 0, "Home");
@@ -765,12 +711,8 @@ public class MainActivity extends Activity {
         menu.add(0, M_EN, 2, "EN \u2194 SK (Lingea)");
         menu.add(0, M_DE, 3, "DE \u2194 SK (Lingea)");
         menu.add(0, M_IT, 4, "IT \u2194 SK (Lingea)");
-        menu.add(0, M_CUSTOM, 5, "Custom dictionary URL\u2026");
         menu.add(0, M_APPEARANCE, 6, "Appearance\u2026");
-        menu.add(0, M_SIGNIN, 7, "Sign in\u2026");
-        menu.add(0, M_SIGNOUT, 8, "Sign out");
         menu.add(0, M_NAV, 9, "Show site navigation");
-        menu.add(0, M_MENUBAR, 9, "Show site menu bar");
         MenuItem pron = menu.add(0, M_PRONOUNCE, 10, "Auto-pronounce");
         pron.setCheckable(true);
         menu.add(0, M_BROWSER, 11, "Open in browser");
@@ -783,11 +725,6 @@ public class MainActivity extends Activity {
         if (nav != null) {
             nav.setTitle(hideChrome()
                     ? "Show site navigation" : "Hide site navigation");
-        }
-        MenuItem mb = menu.findItem(M_MENUBAR);
-        if (mb != null) {
-            mb.setTitle(hideMenuBar()
-                    ? "Show site menu bar" : "Hide site menu bar");
         }
         MenuItem pron = menu.findItem(M_PRONOUNCE);
         if (pron != null) {
@@ -817,25 +754,11 @@ public class MainActivity extends Activity {
             case M_IT:
                 setTemplate(T_IT);
                 return true;
-            case M_CUSTOM:
-                showTemplateDialog();
-                return true;
             case M_APPEARANCE:
                 showAppearanceDialog();
                 return true;
-            case M_SIGNIN:
-                signIn();
-                return true;
-            case M_SIGNOUT:
-                signOut();
-                return true;
             case M_NAV:
                 prefs().edit().putBoolean(KEY_HIDE_CHROME, !hideChrome()).apply();
-                applyChromeVisibility();
-                return true;
-            case M_MENUBAR:
-                prefs().edit().putBoolean(KEY_HIDE_MENUBAR, !hideMenuBar())
-                        .apply();
                 applyChromeVisibility();
                 return true;
             case M_PRONOUNCE:
@@ -870,32 +793,6 @@ public class MainActivity extends Activity {
                 prefs().edit().putInt(KEY_APPEARANCE, which).apply();
                 dialog.dismiss();
                 recreate(); // re-applies theme; WebView state is restored
-            }
-        });
-        b.setNegativeButton("Cancel", null);
-        b.show();
-    }
-
-    private void showTemplateDialog() {
-        final EditText input = new EditText(this);
-        input.setText(getTemplate());
-        input.setHint("https://example.com/dictionary/%s");
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("Dictionary URL template");
-        b.setMessage("Use %s where the searched word should be inserted. "
-                + "If %s is missing, the word is appended to the end of the URL.");
-        b.setView(input, pad, pad / 2, pad, 0);
-        b.setPositiveButton("Save", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                String t = input.getText().toString().trim();
-                if (t.startsWith("http://") || t.startsWith("https://")) {
-                    setTemplate(t);
-                } else {
-                    Toast.makeText(MainActivity.this,
-                            "URL must start with http(s)://", Toast.LENGTH_LONG).show();
-                }
             }
         });
         b.setNegativeButton("Cancel", null);
