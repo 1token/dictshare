@@ -732,27 +732,17 @@ public class MainActivity extends Activity {
         rules.append(".area-right{display:block !important}");
         rules.append(".premium.mobile{display:none !important}");
         boolean hide = hideChrome();
+        String extra = "";
         if (hide) {
+            // Hiding <footer> left blank space from the surrounding
+            // layout, so the element is removed from the DOM entirely.
+            // The CSS rule stays as a safety net in case the reactive
+            // framework re-renders a footer between navigations.
+            // 'Show site navigation' reloads the page to restore it.
             rules.append("nav,footer{display:none !important}");
-        }
-        // Hiding <footer> alone can leave its wrapper's padding/height
-        // behind as blank space, so the outermost ancestor that contains
-        // nothing but the footer is hidden as well (and restored, via the
-        // data-dictshare-hidden marker, when the site chrome is shown).
-        String wrapper;
-        if (hide) {
-            wrapper = "var f=document.querySelector('footer');"
-                    + "if(f){var e=f,p=f.parentElement;"
-                    + "while(p&&p!==document.body&&p.children.length===1)"
-                    + "{e=p;p=p.parentElement;}"
-                    + "if(e!==f){e.setAttribute('data-dictshare-hidden','1');"
-                    + "e.style.setProperty('display','none','important');}}";
-        } else {
-            wrapper = "var hs=document.querySelectorAll("
-                    + "'[data-dictshare-hidden]');"
-                    + "for(var i=0;i<hs.length;i++)"
-                    + "{hs[i].style.removeProperty('display');"
-                    + "hs[i].removeAttribute('data-dictshare-hidden');}";
+            extra = "var fs=document.querySelectorAll('footer');"
+                    + "for(var i=0;i<fs.length;i++)"
+                    + "{fs[i].parentNode.removeChild(fs[i]);}";
         }
         String js = "(function(){"
                 + "var st=document.getElementById('dictshareHide');"
@@ -760,7 +750,7 @@ public class MainActivity extends Activity {
                 + "st.id='dictshareHide';"
                 + "(document.head||document.documentElement).appendChild(st);}"
                 + "st.textContent=" + JSONObject.quote(rules.toString()) + ";"
-                + wrapper
+                + extra
                 + "})();";
         web.evaluateJavascript(js, null);
     }
@@ -821,7 +811,13 @@ public class MainActivity extends Activity {
                 return true;
             case M_NAV:
                 prefs().edit().putBoolean(KEY_HIDE_CHROME, !hideChrome()).apply();
-                applyChromeVisibility();
+                if (hideChrome()) {
+                    applyChromeVisibility();
+                } else {
+                    // The footer was removed from the DOM; reload to
+                    // restore the full site chrome
+                    web.reload();
+                }
                 return true;
             case M_PRONOUNCE:
                 boolean on = !autoPronounceEnabled();
