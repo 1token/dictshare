@@ -414,7 +414,8 @@ public class MainActivity extends Activity {
      * The redesigned site navigates between entries without full page
      * loads, so history injection and auto-pronunciation are (re)applied
      * shortly after every recorded word navigation, giving the page time
-     * to render the entry.
+     * to render the entry (750 ms; 500 ms occasionally missed the
+     * speaker element).
      */
     private void scheduleEntryEnhancements() {
         web.postDelayed(new Runnable() {
@@ -424,7 +425,7 @@ public class MainActivity extends Activity {
                 injectHistoryCard();
                 autoPronounce();
             }
-        }, 500);
+        }, 750);
     }
 
     private boolean autoPronounceEnabled() {
