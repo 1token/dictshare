@@ -730,16 +730,37 @@ public class MainActivity extends Activity {
         // site (lg:block hidden); keep it visible. Hide the mobile ad.
         rules.append(".area-right{display:block !important}");
         rules.append(".premium.mobile{display:none !important}");
-        if (hideChrome()) {
+        boolean hide = hideChrome();
+        if (hide) {
             rules.append("nav,footer{display:none !important}");
+        }
+        // Hiding <footer> alone can leave its wrapper's padding/height
+        // behind as blank space, so the outermost ancestor that contains
+        // nothing but the footer is hidden as well (and restored, via the
+        // data-dictshare-hidden marker, when the site chrome is shown).
+        String wrapper;
+        if (hide) {
+            wrapper = "var f=document.querySelector('footer');"
+                    + "if(f){var e=f,p=f.parentElement;"
+                    + "while(p&&p!==document.body&&p.children.length===1)"
+                    + "{e=p;p=p.parentElement;}"
+                    + "if(e!==f){e.setAttribute('data-dictshare-hidden','1');"
+                    + "e.style.setProperty('display','none','important');}}";
+        } else {
+            wrapper = "var hs=document.querySelectorAll("
+                    + "'[data-dictshare-hidden]');"
+                    + "for(var i=0;i<hs.length;i++)"
+                    + "{hs[i].style.removeProperty('display');"
+                    + "hs[i].removeAttribute('data-dictshare-hidden');}";
         }
         String js = "(function(){"
                 + "var st=document.getElementById('dictshareHide');"
                 + "if(!st){st=document.createElement('style');"
                 + "st.id='dictshareHide';"
                 + "(document.head||document.documentElement).appendChild(st);}"
-                + "st.textContent=" + JSONObject.quote(rules.toString())
-                + ";})();";
+                + "st.textContent=" + JSONObject.quote(rules.toString()) + ";"
+                + wrapper
+                + "})();";
         web.evaluateJavascript(js, null);
     }
 
