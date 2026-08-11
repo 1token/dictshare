@@ -23,6 +23,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -49,6 +50,8 @@ public class MainActivity extends Activity {
     private static final String KEY_TRAIN_DELAY = "train_delay";
     private static final int DEFAULT_TRAIN_COUNT = 10;
     private static final int DEFAULT_TRAIN_DELAY = 5;
+    private static final String KEY_TRAIN_CONTINUOUS = "train_continuous";
+    private static final String KEY_TRAIN_BUBBLE = "train_bubble";
     private static final String DEFAULT_TEMPLATE =
             "https://slovniky.lingea.sk/anglicko-slovensky/%s";
 
@@ -224,16 +227,21 @@ public class MainActivity extends Activity {
                     // Captures words typed directly into the site as well.
                     // Matched against every known dictionary so that words
                     // land in the history of the dictionary they belong to.
-                    // Playback loads are recognized by the playing word and
-                    // are not recorded, so training cannot reorder the
-                    // history; any other navigation during playback is the
-                    // user taking over and stops the training.
-                    boolean matched = false;
+                    // Playback loads are recognized by the playing word;
+                    // they are recorded only in bubble-up mode. A lookup of
+                    // a DIFFERENT word during a session is the user taking
+                    // over and stops the training. Navigation events that
+                    // do not decode to a word are ignored here: the
+                    // reactive site emits synthetic history updates during
+                    // its own page loads, and treating those as user
+                    // actions used to kill the session after one word.
                     for (String t : knownTemplates()) {
                         String w = wordFromUrl(url, t);
                         if (w != null) {
-                            matched = true;
                             if (playing && w.equalsIgnoreCase(playingWord)) {
+                                if (trainBubble()) {
+                                    recordHistory(w, t);
+                                }
                                 scheduleEntryEnhancements();
                             } else {
                                 stopPlayback();
@@ -242,9 +250,6 @@ public class MainActivity extends Activity {
                             }
                             break;
                         }
-                    }
-                    if (!matched) {
-                        stopPlayback();
                     }
                 }
             }
@@ -413,6 +418,7 @@ public class MainActivity extends Activity {
     }
 
     private void setTemplate(String template) {
+        stopPlayback();
         prefs().edit().putString(KEY_TEMPLATE, template).apply();
         if (lastQuery != null) {
             search(lastQuery); // re-run the last lookup in the new dictionary
@@ -475,12 +481,21 @@ public class MainActivity extends Activity {
         return prefs().getInt(KEY_TRAIN_DELAY, DEFAULT_TRAIN_DELAY);
     }
 
+    private boolean trainContinuous() {
+        return prefs().getBoolean(KEY_TRAIN_CONTINUOUS, false);
+    }
+
+    private boolean trainBubble() {
+        return prefs().getBoolean(KEY_TRAIN_BUBBLE, false);
+    }
+
     /**
-     * Plays the last trainCount() words of the active dictionary's
-     * history from oldest to newest: each word is displayed (and, when
-     * enabled, auto-pronounced by the normal entry flow) and the next
-     * follows after trainDelay() seconds. The playlist is snapshotted
-     * here; the live history remains untouched by the playback.
+     * Starts a training session over the last trainCount() words of the
+     * active dictionary's history, oldest first. In continuous mode the
+     * words auto-advance every trainDelay() seconds; in one-by-one mode
+     * (default) each press of the action-bar button shows the next word.
+     * The playlist is snapshotted here; whether a played word is
+     * re-recorded (bubbles to the top of the history) is a preference.
      */
     private void startPlayback() {
         List<String> hist = loadHistory(getTemplate());
@@ -494,22 +509,35 @@ public class MainActivity extends Activity {
         Collections.reverse(playlist); // stored newest-first; play oldest-first
         playIndex = 0;
         playing = true;
-        invalidateOptionsMenu();
-        Toast.makeText(this, "Playing " + n + " words, oldest first",
+        Toast.makeText(this, trainContinuous()
+                ? "Playing " + n + " words, oldest first"
+                : "Training " + n + " words – tap the button for the next",
                 Toast.LENGTH_SHORT).show();
         playStep();
     }
 
+    /** Shows the next word of the session (also the button's action in
+     *  one-by-one mode); ends the session after the last word. */
     private void playStep() {
-        if (!playing || playlist == null || playIndex >= playlist.size()) {
+        if (!playing || playlist == null) {
             stopPlayback();
+            return;
+        }
+        if (playIndex >= playlist.size()) {
+            stopPlayback();
+            Toast.makeText(this, "Training finished", Toast.LENGTH_SHORT)
+                    .show();
             return;
         }
         playingWord = playlist.get(playIndex);
         playIndex++;
+        web.removeCallbacks(playTick);
         web.loadUrl(buildUrl(playingWord));
-        // The last word keeps its full display time before auto-stop
-        web.postDelayed(playTick, trainDelay() * 1000L);
+        if (trainContinuous()) {
+            // the last word keeps its full display time before auto-stop
+            web.postDelayed(playTick, trainDelay() * 1000L);
+        }
+        invalidateOptionsMenu();
     }
 
     private void stopPlayback() {
@@ -538,10 +566,18 @@ public class MainActivity extends Activity {
         final EditText delay = new EditText(this);
         delay.setInputType(InputType.TYPE_CLASS_NUMBER);
         delay.setText(String.valueOf(trainDelay()));
+        final CheckBox cont = new CheckBox(this);
+        cont.setText("Continuous playback (auto-advance)");
+        cont.setChecked(trainContinuous());
+        final CheckBox bubble = new CheckBox(this);
+        bubble.setText("Played word moves to top of history");
+        bubble.setChecked(trainBubble());
         box.addView(l1);
         box.addView(count);
         box.addView(l2);
         box.addView(delay);
+        box.addView(cont);
+        box.addView(bubble);
         AlertDialog.Builder b = new AlertDialog.Builder(this);
         b.setTitle("Training");
         b.setView(box);
@@ -553,6 +589,8 @@ public class MainActivity extends Activity {
                                 .toString(), 2, 100, DEFAULT_TRAIN_COUNT))
                         .putInt(KEY_TRAIN_DELAY, clamp(delay.getText()
                                 .toString(), 2, 60, DEFAULT_TRAIN_DELAY))
+                        .putBoolean(KEY_TRAIN_CONTINUOUS, cont.isChecked())
+                        .putBoolean(KEY_TRAIN_BUBBLE, bubble.isChecked())
                         .apply();
             }
         });
@@ -936,9 +974,17 @@ public class MainActivity extends Activity {
         }
         MenuItem play = menu.findItem(M_PLAY);
         if (play != null) {
-            play.setTitle(playing ? "Stop playback" : "Play history");
-            play.setIcon(playing ? android.R.drawable.ic_media_pause
-                    : android.R.drawable.ic_media_play);
+            if (!playing) {
+                play.setTitle("Play history");
+                play.setIcon(android.R.drawable.ic_media_play);
+            } else if (trainContinuous()) {
+                play.setTitle("Stop playback");
+                play.setIcon(android.R.drawable.ic_media_pause);
+            } else {
+                int total = playlist == null ? 0 : playlist.size();
+                play.setTitle("Next word (" + playIndex + "/" + total + ")");
+                play.setIcon(android.R.drawable.ic_media_next);
+            }
         }
         MenuItem pron = menu.findItem(M_PRONOUNCE);
         if (pron != null) {
@@ -951,6 +997,7 @@ public class MainActivity extends Activity {
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
             case M_HOME:
+                stopPlayback();
                 web.loadUrl(homeUrl());
                 return true;
             case M_RELOAD:
@@ -972,10 +1019,12 @@ public class MainActivity extends Activity {
                 showAppearanceDialog();
                 return true;
             case M_PLAY:
-                if (playing) {
+                if (!playing) {
+                    startPlayback();
+                } else if (trainContinuous()) {
                     stopPlayback();
                 } else {
-                    startPlayback();
+                    playStep(); // one-by-one: advance to the next word
                 }
                 return true;
             case M_TRAINING:
