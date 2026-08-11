@@ -32,6 +32,7 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class MainActivity extends Activity {
@@ -44,6 +45,10 @@ public class MainActivity extends Activity {
     private static final String KEY_HISTORY_SIZE = "history_size";
     private static final String KEY_AUTOPRONOUNCE = "autopronounce";
     private static final int DEFAULT_HISTORY_SIZE = 30;
+    private static final String KEY_TRAIN_COUNT = "train_count";
+    private static final String KEY_TRAIN_DELAY = "train_delay";
+    private static final int DEFAULT_TRAIN_COUNT = 10;
+    private static final int DEFAULT_TRAIN_DELAY = 5;
     private static final String DEFAULT_TEMPLATE =
             "https://slovniky.lingea.sk/anglicko-slovensky/%s";
 
@@ -66,10 +71,26 @@ public class MainActivity extends Activity {
     private static final int M_NAV = 11;
     private static final int M_HISTORY = 12;
     private static final int M_PRONOUNCE = 13;
+    private static final int M_PLAY = 15;
+    private static final int M_TRAINING = 16;
 
     private WebView web;
     private String lastQuery = null;
     private boolean resumed = false;
+
+    // Vocabulary training playback state. The playlist is a snapshot
+    // taken when playback starts, so changes to the history during
+    // playback (including by the playback itself) cannot affect it.
+    private boolean playing = false;
+    private String playingWord = null;
+    private List<String> playlist = null;
+    private int playIndex = 0;
+    private final Runnable playTick = new Runnable() {
+        @Override
+        public void run() {
+            playStep();
+        }
+    };
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -203,13 +224,27 @@ public class MainActivity extends Activity {
                     // Captures words typed directly into the site as well.
                     // Matched against every known dictionary so that words
                     // land in the history of the dictionary they belong to.
+                    // Playback loads are recognized by the playing word and
+                    // are not recorded, so training cannot reorder the
+                    // history; any other navigation during playback is the
+                    // user taking over and stops the training.
+                    boolean matched = false;
                     for (String t : knownTemplates()) {
                         String w = wordFromUrl(url, t);
                         if (w != null) {
-                            recordHistory(w, t);
-                            scheduleEntryEnhancements();
+                            matched = true;
+                            if (playing && w.equalsIgnoreCase(playingWord)) {
+                                scheduleEntryEnhancements();
+                            } else {
+                                stopPlayback();
+                                recordHistory(w, t);
+                                scheduleEntryEnhancements();
+                            }
                             break;
                         }
+                    }
+                    if (!matched) {
+                        stopPlayback();
                     }
                 }
             }
@@ -255,6 +290,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        stopPlayback();
         // Pauses WebView processing and any playing pronunciation audio;
         // together with the resumed flag this stops auto-pronunciation
         // from firing while the app is in the background.
@@ -345,6 +381,7 @@ public class MainActivity extends Activity {
     }
 
     private void search(String query) {
+        stopPlayback();
         recordHistory(query, getTemplate());
         web.loadUrl(buildUrl(query));
     }
@@ -426,6 +463,117 @@ public class MainActivity extends Activity {
                 autoPronounce();
             }
         }, 750);
+    }
+
+    // ---- Vocabulary training playback ------------------------------------
+
+    private int trainCount() {
+        return prefs().getInt(KEY_TRAIN_COUNT, DEFAULT_TRAIN_COUNT);
+    }
+
+    private int trainDelay() {
+        return prefs().getInt(KEY_TRAIN_DELAY, DEFAULT_TRAIN_DELAY);
+    }
+
+    /**
+     * Plays the last trainCount() words of the active dictionary's
+     * history from oldest to newest: each word is displayed (and, when
+     * enabled, auto-pronounced by the normal entry flow) and the next
+     * follows after trainDelay() seconds. The playlist is snapshotted
+     * here; the live history remains untouched by the playback.
+     */
+    private void startPlayback() {
+        List<String> hist = loadHistory(getTemplate());
+        if (hist.isEmpty()) {
+            Toast.makeText(this, "History is empty", Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
+        int n = Math.min(trainCount(), hist.size());
+        playlist = new ArrayList<String>(hist.subList(0, n));
+        Collections.reverse(playlist); // stored newest-first; play oldest-first
+        playIndex = 0;
+        playing = true;
+        invalidateOptionsMenu();
+        Toast.makeText(this, "Playing " + n + " words, oldest first",
+                Toast.LENGTH_SHORT).show();
+        playStep();
+    }
+
+    private void playStep() {
+        if (!playing || playlist == null || playIndex >= playlist.size()) {
+            stopPlayback();
+            return;
+        }
+        playingWord = playlist.get(playIndex);
+        playIndex++;
+        web.loadUrl(buildUrl(playingWord));
+        // The last word keeps its full display time before auto-stop
+        web.postDelayed(playTick, trainDelay() * 1000L);
+    }
+
+    private void stopPlayback() {
+        if (!playing) {
+            return;
+        }
+        playing = false;
+        playingWord = null;
+        playlist = null;
+        web.removeCallbacks(playTick);
+        invalidateOptionsMenu();
+    }
+
+    private void showTrainingDialog() {
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(pad, pad / 2, pad, 0);
+        TextView l1 = new TextView(this);
+        l1.setText("Words to play (2\u2013100)");
+        final EditText count = new EditText(this);
+        count.setInputType(InputType.TYPE_CLASS_NUMBER);
+        count.setText(String.valueOf(trainCount()));
+        TextView l2 = new TextView(this);
+        l2.setText("Seconds per word (2\u201360)");
+        final EditText delay = new EditText(this);
+        delay.setInputType(InputType.TYPE_CLASS_NUMBER);
+        delay.setText(String.valueOf(trainDelay()));
+        box.addView(l1);
+        box.addView(count);
+        box.addView(l2);
+        box.addView(delay);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("Training");
+        b.setView(box);
+        b.setPositiveButton("Save", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                prefs().edit()
+                        .putInt(KEY_TRAIN_COUNT, clamp(count.getText()
+                                .toString(), 2, 100, DEFAULT_TRAIN_COUNT))
+                        .putInt(KEY_TRAIN_DELAY, clamp(delay.getText()
+                                .toString(), 2, 60, DEFAULT_TRAIN_DELAY))
+                        .apply();
+            }
+        });
+        b.setNegativeButton("Cancel", null);
+        b.show();
+    }
+
+    private static int clamp(String raw, int min, int max, int fallback) {
+        int n;
+        try {
+            n = Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            n = fallback;
+        }
+        if (n < min) {
+            n = min;
+        }
+        if (n > max) {
+            n = max;
+        }
+        return n;
     }
 
     private boolean autoPronounceEnabled() {
@@ -761,6 +909,9 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
+        MenuItem play = menu.add(0, M_PLAY, 0, "Play history");
+        play.setIcon(android.R.drawable.ic_media_play);
+        play.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         menu.add(0, M_HOME, 0, "Home");
         menu.add(0, M_RELOAD, 1, "Reload");
         menu.add(0, M_HISTORY, 2, "History\u2026");
@@ -768,6 +919,7 @@ public class MainActivity extends Activity {
         menu.add(0, M_DE, 3, "DE \u2194 SK (Lingea)");
         menu.add(0, M_IT, 4, "IT \u2194 SK (Lingea)");
         menu.add(0, M_APPEARANCE, 6, "Appearance\u2026");
+        menu.add(0, M_TRAINING, 6, "Training\u2026");
         menu.add(0, M_NAV, 9, "Show site navigation");
         MenuItem pron = menu.add(0, M_PRONOUNCE, 10, "Auto-pronounce");
         pron.setCheckable(true);
@@ -781,6 +933,12 @@ public class MainActivity extends Activity {
         if (nav != null) {
             nav.setTitle(hideChrome()
                     ? "Show site navigation" : "Hide site navigation");
+        }
+        MenuItem play = menu.findItem(M_PLAY);
+        if (play != null) {
+            play.setTitle(playing ? "Stop playback" : "Play history");
+            play.setIcon(playing ? android.R.drawable.ic_media_pause
+                    : android.R.drawable.ic_media_play);
         }
         MenuItem pron = menu.findItem(M_PRONOUNCE);
         if (pron != null) {
@@ -812,6 +970,16 @@ public class MainActivity extends Activity {
                 return true;
             case M_APPEARANCE:
                 showAppearanceDialog();
+                return true;
+            case M_PLAY:
+                if (playing) {
+                    stopPlayback();
+                } else {
+                    startPlayback();
+                }
+                return true;
+            case M_TRAINING:
+                showTrainingDialog();
                 return true;
             case M_NAV:
                 prefs().edit().putBoolean(KEY_HIDE_CHROME, !hideChrome()).apply();
