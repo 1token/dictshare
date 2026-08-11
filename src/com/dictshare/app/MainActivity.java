@@ -740,6 +740,10 @@ public class MainActivity extends Activity {
             // framework re-renders a footer between navigations.
             // 'Show site navigation' reloads the page to restore it.
             rules.append("nav,footer{display:none !important}");
+            // main's mb-10 (40 px bottom margin) existed to give the
+            // footer breathing room; without the footer it is just
+            // blank space at the bottom of the page
+            rules.append("main{margin-bottom:0 !important}");
             extra = "var fs=document.querySelectorAll('footer');"
                     + "for(var i=0;i<fs.length;i++)"
                     + "{fs[i].parentNode.removeChild(fs[i]);}";
