@@ -11,6 +11,7 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.view.GestureDetector;
 import android.view.Menu;
@@ -34,7 +35,9 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class MainActivity extends Activity {
 
@@ -88,6 +91,11 @@ public class MainActivity extends Activity {
     private String playingWord = null;
     private List<String> playlist = null;
     private int playIndex = 0;
+    // Words already shown this session (plus the entry displayed when the
+    // session started): the site replays their URLs as stale history
+    // events during route changes, which must not end the session.
+    private final Set<String> shownWords = new HashSet<String>();
+    private long lastPlayLoadTime = 0L;
     private final Runnable playTick = new Runnable() {
         @Override
         public void run() {
@@ -238,10 +246,11 @@ public class MainActivity extends Activity {
                     for (String t : knownTemplates()) {
                         String w = wordFromUrl(url, t);
                         if (w != null) {
-                            if (playing && w.equalsIgnoreCase(playingWord)) {
-                                if (trainBubble()) {
-                                    recordHistory(w, t);
-                                }
+                            if (playing && isSessionEvent(w)) {
+                                // Playback-internal: never recorded here
+                                // (bubble-up is done in playStep), never
+                                // ends the session.
+                                shownWords.add(w.toLowerCase());
                                 scheduleEntryEnhancements();
                             } else {
                                 stopPlayback();
@@ -490,6 +499,19 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * True when a word navigation event belongs to the running session:
+     * the word currently being played, any word already shown (the site
+     * replays previous URLs as stale events during route changes), or
+     * any event within 2 s of a playback load (absorbs the site
+     * canonicalizing a form to its headword, e.g. filed -> file).
+     */
+    private boolean isSessionEvent(String w) {
+        return w.equalsIgnoreCase(playingWord)
+                || shownWords.contains(w.toLowerCase())
+                || SystemClock.uptimeMillis() - lastPlayLoadTime < 2000L;
+    }
+
+    /**
      * Starts a training session over the last trainCount() words of the
      * active dictionary's history, oldest first. In continuous mode the
      * words auto-advance every trainDelay() seconds; in one-by-one mode
@@ -509,6 +531,16 @@ public class MainActivity extends Activity {
         Collections.reverse(playlist); // stored newest-first; play oldest-first
         playIndex = 0;
         playing = true;
+        shownWords.clear();
+        // The currently displayed entry will be replayed as a stale event
+        // when the first playback load navigates away from it
+        for (String t : knownTemplates()) {
+            String cur = wordFromUrl(web.getUrl(), t);
+            if (cur != null) {
+                shownWords.add(cur.toLowerCase());
+                break;
+            }
+        }
         Toast.makeText(this, trainContinuous()
                 ? "Playing " + n + " words, oldest first"
                 : "Training " + n + " words – tap the button for the next",
@@ -531,7 +563,15 @@ public class MainActivity extends Activity {
         }
         playingWord = playlist.get(playIndex);
         playIndex++;
+        shownWords.add(playingWord.toLowerCase());
+        // Bubble-up is decided here, deterministically, instead of in the
+        // navigation callback where the site's stale/canonicalized URL
+        // events made it fire regardless of the setting
+        if (trainBubble()) {
+            recordHistory(playingWord, getTemplate());
+        }
         web.removeCallbacks(playTick);
+        lastPlayLoadTime = SystemClock.uptimeMillis();
         web.loadUrl(buildUrl(playingWord));
         if (trainContinuous()) {
             // the last word keeps its full display time before auto-stop
@@ -547,6 +587,8 @@ public class MainActivity extends Activity {
         playing = false;
         playingWord = null;
         playlist = null;
+        shownWords.clear();
+        lastPlayLoadTime = 0L;
         web.removeCallbacks(playTick);
         invalidateOptionsMenu();
     }
