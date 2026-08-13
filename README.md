@@ -5,7 +5,11 @@ Adds the dictionary to the system share sheet and to the text-selection
 toolbar (ACTION_PROCESS_TEXT), so highlighted text in any app can be looked
 up with one tap.
 
-- Default dictionary: https://slovniky.lingea.sk/anglicko-slovensky
+- Default dictionary: https://slovniky.lingea.sk/anglicko-slovensky;
+  five presets across two domains (lingea.sk EN/DE/IT <-> SK and
+  dict.com DE/IT <-> EN, separate per-domain logins persist in the
+  WebView). Google ads and ad labels are removed from the pages;
+  words opened from the injected history card keep their position.
 - Menu: switch EN/DE/IT <-> SK Lingea dictionaries or set any custom URL
   template containing `%s` as the placeholder for the searched word.
 - Appearance setting: match device / dark / light (darkens web content too

@@ -1013,8 +1013,22 @@ public class MainActivity extends Activity {
         // site (lg:block hidden); keep it visible. Hide the mobile ad.
         rules.append(".area-right{display:block !important}");
         rules.append(".premium.mobile{display:none !important}");
+        // Google ads and their tiny "Reklama"/"Advertising" label are
+        // removed from the DOM (the CSS rule bridges the gap until the
+        // removal runs again after a reactive re-render)
+        rules.append("ins.adsbygoogle{display:none !important}");
         boolean hide = hideChrome();
-        String extra = "";
+        String extra = "var ads=document.querySelectorAll("
+                + "'ins.adsbygoogle');"
+                + "for(var i=0;i<ads.length;i++){var n=ads[i];"
+                + "var q=n.parentElement;"
+                + "if(q&&q.children.length===1)n=q;"
+                + "n.parentNode.removeChild(n);}"
+                + "var ps=document.querySelectorAll('p');"
+                + "for(var i=0;i<ps.length;i++){"
+                + "var t=(ps[i].textContent||'').trim();"
+                + "if(t==='Reklama'||t==='Advertising'||t==='Advertisement')"
+                + "{ps[i].parentNode.removeChild(ps[i]);}}";
         if (hide) {
             // Hiding <footer> left blank space from the surrounding
             // layout, so the element is removed from the DOM entirely.
@@ -1026,7 +1040,7 @@ public class MainActivity extends Activity {
             // footer breathing room; without the footer it is just
             // blank space at the bottom of the page
             rules.append("main{margin-bottom:0 !important}");
-            extra = "var fs=document.querySelectorAll('footer');"
+            extra += "var fs=document.querySelectorAll('footer');"
                     + "for(var i=0;i<fs.length;i++)"
                     + "{fs[i].parentNode.removeChild(fs[i]);}";
         }
