@@ -61,6 +61,8 @@ public class MainActivity extends Activity {
     private static final String T_EN = "https://slovniky.lingea.sk/anglicko-slovensky/%s";
     private static final String T_DE = "https://slovniky.lingea.sk/nemecko-slovensky/%s";
     private static final String T_IT = "https://slovniky.lingea.sk/taliansko-slovensky/%s";
+    private static final String T_DE_EN = "https://dict.com/german-english/%s";
+    private static final String T_IT_EN = "https://dict.com/italian-english/%s";
 
     // Appearance values
     private static final int APP_SYSTEM = 0;
@@ -79,6 +81,8 @@ public class MainActivity extends Activity {
     private static final int M_PRONOUNCE = 13;
     private static final int M_PLAY = 15;
     private static final int M_TRAINING = 16;
+    private static final int M_DE_EN = 17;
+    private static final int M_IT_EN = 18;
 
     private WebView web;
     private String lastQuery = null;
@@ -413,7 +417,7 @@ public class MainActivity extends Activity {
     private List<String> knownTemplates() {
         List<String> ts = new ArrayList<String>();
         ts.add(getTemplate());
-        String[] presets = {T_EN, T_DE, T_IT};
+        String[] presets = {T_EN, T_DE, T_IT, T_DE_EN, T_IT_EN};
         for (String t : presets) {
             if (!ts.contains(t)) {
                 ts.add(t);
@@ -455,8 +459,10 @@ public class MainActivity extends Activity {
     /** Clicks the site's next (true) or previous (false) entry button. */
     private void entryStep(boolean next) {
         String sel = next
-                ? "[title=\"Nasleduj\u00face\"], .menu-icon.mi-index_next"
-                : "[title=\"Predch\u00e1dzaj\u00face\"], .menu-icon.mi-index_prev";
+                ? "[title=\"Nasleduj\u00face\"], [title=\"Next\"],"
+                        + " .menu-icon.mi-index_next"
+                : "[title=\"Predch\u00e1dzaj\u00face\"], [title=\"Previous\"],"
+                        + " .menu-icon.mi-index_prev";
         String js = "(function(){var el=document.querySelector('" + sel
                 + "');if(el)el.click();})();";
         web.evaluateJavascript(js, null);
@@ -998,6 +1004,8 @@ public class MainActivity extends Activity {
         menu.add(0, M_EN, 2, "EN \u2194 SK (Lingea)");
         menu.add(0, M_DE, 3, "DE \u2194 SK (Lingea)");
         menu.add(0, M_IT, 4, "IT \u2194 SK (Lingea)");
+        menu.add(0, M_DE_EN, 5, "DE \u2194 EN (dict.com)");
+        menu.add(0, M_IT_EN, 5, "IT \u2194 EN (dict.com)");
         menu.add(0, M_APPEARANCE, 6, "Appearance\u2026");
         menu.add(0, M_TRAINING, 6, "Training\u2026");
         menu.add(0, M_NAV, 9, "Show site navigation");
@@ -1056,6 +1064,12 @@ public class MainActivity extends Activity {
                 return true;
             case M_IT:
                 setTemplate(T_IT);
+                return true;
+            case M_DE_EN:
+                setTemplate(T_DE_EN);
+                return true;
+            case M_IT_EN:
+                setTemplate(T_IT_EN);
                 return true;
             case M_APPEARANCE:
                 showAppearanceDialog();
