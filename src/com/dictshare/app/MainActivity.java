@@ -100,6 +100,14 @@ public class MainActivity extends Activity {
     // events during route changes, which must not end the session.
     private final Set<String> shownWords = new HashSet<String>();
     private long lastPlayLoadTime = 0L;
+
+    // The word of the entry currently on screen: stale history events the
+    // site replays for it must not be re-recorded. suppressWord is a
+    // one-shot marker for a lookup opened from the injected history card,
+    // which must keep its position in the history.
+    private String currentWord = null;
+    private String suppressWord = null;
+    private long suppressTime = 0L;
     private final Runnable playTick = new Runnable() {
         @Override
         public void run() {
@@ -210,6 +218,11 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (url.startsWith("dictshare://hist/")) {
+                    openFromHistoryCard(Uri.decode(
+                            url.substring("dictshare://hist/".length())));
+                    return true;
+                }
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     return false; // keep browsing inside the app
                 }
@@ -258,7 +271,11 @@ public class MainActivity extends Activity {
                                 scheduleEntryEnhancements();
                             } else {
                                 stopPlayback();
-                                recordHistory(w, t);
+                                if (!consumeSuppression(w)
+                                        && !w.equalsIgnoreCase(currentWord)) {
+                                    recordHistory(w, t);
+                                }
+                                currentWord = w;
                                 scheduleEntryEnhancements();
                             }
                             break;
@@ -401,6 +418,7 @@ public class MainActivity extends Activity {
     private void search(String query) {
         stopPlayback();
         recordHistory(query, getTemplate());
+        currentWord = query;
         web.loadUrl(buildUrl(query));
     }
 
@@ -569,6 +587,7 @@ public class MainActivity extends Activity {
         }
         playingWord = playlist.get(playIndex);
         playIndex++;
+        currentWord = playingWord;
         shownWords.add(playingWord.toLowerCase());
         // Bubble-up is decided here, deterministically, instead of in the
         // navigation callback where the site's stale/canonicalized URL
@@ -727,6 +746,33 @@ public class MainActivity extends Activity {
         return w.isEmpty() ? null : w;
     }
 
+    /**
+     * Opens a word tapped in the injected history card. The lookup is
+     * displayed normally but marked so that it is not re-recorded: the
+     * word keeps its position in the history (and in the card).
+     */
+    private void openFromHistoryCard(String word) {
+        if (word == null || word.isEmpty()) {
+            return;
+        }
+        stopPlayback();
+        suppressWord = word;
+        suppressTime = SystemClock.uptimeMillis();
+        lastQuery = word;
+        web.loadUrl(buildUrl(word));
+    }
+
+    /** One-shot, time-limited check for a suppressed (card-tapped) word. */
+    private boolean consumeSuppression(String w) {
+        if (suppressWord != null
+                && w.equalsIgnoreCase(suppressWord)
+                && SystemClock.uptimeMillis() - suppressTime < 15000L) {
+            suppressWord = null;
+            return true;
+        }
+        return false;
+    }
+
     private int historySize() {
         return prefs().getInt(KEY_HISTORY_SIZE, DEFAULT_HISTORY_SIZE);
     }
@@ -802,8 +848,10 @@ public class MainActivity extends Activity {
         for (int i = 0; i < list.size(); i++) {
             String w = list.get(i);
             boolean last = i == list.size() - 1;
-            h.append("<li><a href=\"").append(htmlEscape(buildUrl(w)))
-                    .append("\" class=\"hover:cursor-pointer ")
+            h.append("<li><a href=\"dictshare://hist/")
+                    .append(htmlEscape(Uri.encode(w)))
+                    .append("\"")
+                    .append(" class=\"hover:cursor-pointer ")
                     .append("hover:underline break-all\">")
                     .append(htmlEscape(w)).append("</a>");
             if (!last) {
